@@ -1,0 +1,57 @@
+name: Copilot CLI Scheduled Task
+
+on:
+  # 1. 定時排程（使用 UTC 時間，台灣時間 UTC+8 需減 8 小時）
+  # 範例：每天台灣時間早上 08:30 執行（即 UTC 00:30）
+  schedule:
+    - cron: '30 0 * * *'
+
+  # 2. 保留手動觸發按鈕，方便你隨時測試與除錯
+  workflow_dispatch:
+
+jobs:
+  run-copilot-task:
+    runs-on: ubuntu-latest
+    # 限制執行時間，避免 AI 陷入迴圈消耗過多 GitHub Actions 免費分鐘數
+    timeout-minutes: 10
+
+    permissions:
+      contents: write      # 若需要修改檔案並 commit
+      issues: write        # 若需要自動建立 Issue
+      pull-requests: write # 若需要自動建立 PR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Execute Scheduled Copilot Prompt
+        env:
+          # 注入擁有 Copilot Requests 權限的個人 PAT
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          copilot \
+            --model mai-code-2-flash \
+            --allow-all-tools \
+            --deny-tool "shell(rm)" \
+            --deny-tool "shell(git push --force)" \
+            -p "請檢查目前的 repository 狀態與近期變更，整理一份摘要並儲存為 daily-report.md。"
+
+      # (選用) 若任務有產出或修改檔案，自動 Commit 回 Repo
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: automated update via Copilot CLI [skip ci]"
+            git push
+          fi
